@@ -1,5 +1,5 @@
 from os import environ
-from time import sleep
+from asyncio import sleep
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,10 +9,9 @@ import youtube_dl
 import shutil
 
 
-scheduler = AsyncIOScheduler()
-app = Client(
-    environ["TG_STORE"], api_id=int(environ["API_ID"]), api_hash=environ["API_HASH"]
-)
+tz = environ.get("TIMEZONE", "Asia/Tehran")
+scheduler = AsyncIOScheduler(timezone=tz)
+app = Client("personal-bot", session_string=environ["TG_STORE"])
 
 
 @app.on_message(filters.command("pic") & filters.user("me"))
@@ -69,17 +68,18 @@ async def make_uuid(client, message):
 
 @app.on_message(filters.command("merge") & filters.user("me"))
 async def merge_messages(client, message):
-    mes_id, deletion_count = message.message_id, 0
     command = message.text.split()[1:]
-    message_iteration = client.iter_history(
-        message.chat.id, limit=int(command[0]), offset=1
-    )
     merged_text = list()
-    async for mess in message_iteration:
+    for offset in range(1, 10):
+        mess = [
+            m async for m in client.get_chat_history(message.chat.id, limit=1, offset=1)
+        ][0]
+        if mess.from_user.id != message.from_user.id:
+            break
         merged_text.append(mess.text)
-        deleted = await mess.delete()
+        await mess.delete()
     await message.delete()
-    await message.reply_text("\n".join(merged_text[::-1]), quote=True)
+    await message.reply_text("\n".join(merged_text[::-1]))
 
 
 @app.on_message(filters.command("sticker") & filters.user("me"))
@@ -108,36 +108,60 @@ async def add_to_sticker(client, message):
     await message.reply_text("Done.")
 
 
-async def send_schedule_message(client, message, text):
-    await message.reply_text(text)
+async def send_schedule_message(client, message, chat_id):
+    await message.copy(chat_id)
 
 
-@app.on_message(filters.command("schedule") & filters.user("me"))
+@app.on_message(filters.command("mkcron") & filters.user("me"))
 async def schedule_message(client, message):
-    command = ' '.join(message.text.split()[1:])
+    job_name = message.text.split()[1]
+    trigger = CronTrigger.from_crontab(" ".join(message.text.split()[2:]), timezone=tz)
     if message.reply_to_message is not None:
         scheduler.add_job(
             send_schedule_message,
-            CronTrigger.from_crontab(command),
-            args=[client, message, message.reply_to_message.text],
+            trigger,
+            args=[client, message.reply_to_message, message.chat.id],
+            id=job_name,
         )
-        await message.reply_text("Message scheduled.")
+        await message.reply_text(f"Job `{job_name}` is scheduled.")
     else:
         await message.reply_text("You should reply to a message")
 
 
+@app.on_message(filters.command("rmcron") & filters.user("me"))
+async def deschedule_message(client, message):
+    job_name = message.text.split()[1]
+    scheduler.remove_job(job_name)
+    await message.reply_text(f"Job `{job_name}` is canceled.")
+
+
+@app.on_message(filters.command("lscron") & filters.user("me"))
+async def deschedule_message(client, message):
+    jobs = "\n".join(
+        [
+            f"name: {job.id} \t\t next_run: {job.next_run_time}"
+            for job in scheduler.get_jobs()
+        ]
+    )
+    await message.reply_text(f"List jobs:\n`{jobs}`")
+
+
 @app.on_message(filters.command("clear") & filters.user("me"))
 async def delete_messages(client, message):
-    mes_id, deletion_count = message.message_id, 0
+    deletion_count = 0
+
     command = message.text.split()[1:]
-    message_iteration = client.iter_history(
+    message_iteration = client.get_chat_history(
         message.chat.id, limit=int(command[0]), offset=1
     )
     async for mess in message_iteration:
         deleted = await mess.delete()
         if deleted:
             deletion_count += 1
-    await message.reply_text(f"{deletion_count} messages deleted.")
+    await message.delete()
+    counter = await message.reply(f"{deletion_count} messages deleted.")
+    await sleep(5)
+    await counter.delete()
 
 
 scheduler.start()
