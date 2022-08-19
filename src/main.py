@@ -5,6 +5,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from txt_to_pic import source_pic, text_to_pic, pa
 from pyrogram import Client, filters
+import youtube_dl
+import shutil
 
 
 scheduler = AsyncIOScheduler()
@@ -28,6 +30,30 @@ async def make_pic(client, message):
     text_to_pic(reply_mes.text, name, align=align)
     await reply_mes.reply_photo(source_pic / "sticker.png")
     await client.send_document("me", source_pic / "sticker.png")
+
+
+
+@app.on_message((filters.command("ydl") & filters.user("me")) | ((filters.regex("youtu.be") | filters.regex("youtube.com")) & filters.private))
+async def download_youtube(client, message):
+    command = message.text.split(maxsplit=1)
+    if len(command) > 1:
+        command = command[1]
+    else:
+        command = command[0]
+    ydl_opts = {}
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(command, download=True)
+            filename = ydl.prepare_filename(info)
+            downloaded = True
+        except Exception as e:
+            print(e)
+            downloaded = False
+    if downloaded:
+        await message.reply_video(filename)
+    else:
+        await message.reply_text("دانلود با خطا مواجه شد.")
+    # shutil.rmtree(f"../{filename}")
 
 
 @app.on_message(filters.command("uuid4") & filters.user("me"))
