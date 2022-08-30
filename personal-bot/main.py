@@ -1,13 +1,9 @@
 from os import environ
 from asyncio import sleep
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from txt_to_pic import source_pic, text_to_pic, pa
 from pyrogram import Client, filters
-import youtube_dl
-import shutil
-
 
 tz = environ.get("TIMEZONE", "Asia/Tehran")
 scheduler = AsyncIOScheduler(timezone=tz)
@@ -32,29 +28,6 @@ async def make_pic(client, message):
 
 
 
-@app.on_message((filters.command("ydl") & filters.user("me")) | ((filters.regex("youtu.be") | filters.regex("youtube.com")) & filters.private))
-async def download_youtube(client, message):
-    command = message.text.split(maxsplit=1)
-    if len(command) > 1:
-        command = command[1]
-    else:
-        command = command[0]
-    ydl_opts = {}
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(command, download=True)
-            filename = ydl.prepare_filename(info)
-            downloaded = True
-        except Exception as e:
-            print(e)
-            downloaded = False
-    if downloaded:
-        await message.reply_video(filename)
-    else:
-        await message.reply_text("دانلود با خطا مواجه شد.")
-    # shutil.rmtree(f"../{filename}")
-
-
 @app.on_message(filters.command("uuid4") & filters.user("me"))
 async def make_uuid(client, message):
     from uuid import uuid4
@@ -68,12 +41,12 @@ async def make_uuid(client, message):
 
 @app.on_message(filters.command("merge") & filters.user("me"))
 async def merge_messages(client, message):
+    limit = 20
     command = message.text.split()[1:]
+    if len(command) > 0:
+        limit = int(command)
     merged_text = list()
-    for offset in range(1, 10):
-        mess = [
-            m async for m in client.get_chat_history(message.chat.id, limit=1, offset=1)
-        ][0]
+    async for mess in client.get_chat_history(message.chat.id, limit=limit, offset=1):
         if mess.from_user.id != message.from_user.id:
             break
         merged_text.append(mess.text)
